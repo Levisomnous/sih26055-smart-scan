@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Callable
 
 from evaluation.event_metrics import evaluate_interception
-from evaluation.runner import run_scheduler
+from evaluation.runner import run_scheduler_with_history
 
 from scheduler.adaptive import AdaptiveScheduler
 from scheduler.random_scheduler import RandomScheduler
@@ -16,18 +16,21 @@ from simulator.environment import (
 )
 
 
-def run_benchmark(
-    scenario_name: str = "changing",
-    num_bands: int = 20,
-    num_steps: int = 100,
-    seed: int = 42,
-) -> dict[str, dict]:
+SchedulerFactory = Callable[[], object]
+
+
+def default_scheduler_factories(
+    num_bands: int,
+    seed: int,
+) -> dict[str, SchedulerFactory]:
     """
-    Run all schedulers on the same simulated environment.
+    Return the standard four benchmark strategies.
     """
 
-    scheduler_factories: dict[str, Callable] = {
-        "Sequential": lambda: SequentialScheduler(num_bands),
+    return {
+        "Sequential": lambda: SequentialScheduler(
+            num_bands
+        ),
 
         "Random": lambda: RandomScheduler(
             num_bands,
@@ -48,7 +51,33 @@ def run_benchmark(
         ),
     }
 
-    results = {}
+
+def run_benchmark(
+    scenario_name: str = "changing",
+    num_bands: int = 20,
+    num_steps: int = 100,
+    seed: int = 42,
+    scheduler_factories: dict[str, SchedulerFactory] | None = None,
+) -> dict[str, dict]:
+    """
+    Run all supplied schedulers on identical simulated environments.
+
+    Each strategy is simulated exactly once.
+
+    Basic metrics and event-level metrics are calculated from
+    the exact same scan history.
+
+    If scheduler_factories is omitted, the standard four
+    benchmark strategies are used.
+    """
+
+    if scheduler_factories is None:
+        scheduler_factories = default_scheduler_factories(
+            num_bands=num_bands,
+            seed=seed,
+        )
+
+    results: dict[str, dict] = {}
 
     for name, create_scheduler in scheduler_factories.items():
 
@@ -63,34 +92,16 @@ def run_benchmark(
 
         scheduler = create_scheduler()
 
-        basic_result = run_scheduler(
+        # ONE simulation run.
+        basic_result, history = run_scheduler_with_history(
             environment,
             scheduler,
         )
 
-        # We need access to the scan history, so run the
-        # scheduler again through a small local loop.
-        from simulator.receiver import SimulatedReceiver
-        from simulator.scan import ScanEngine
-
-        receiver = SimulatedReceiver(environment)
-        scan_engine = ScanEngine(receiver)
-
-        scheduler = create_scheduler()
-
-        for time_step in range(environment.num_steps):
-            band = scheduler.select_band()
-
-            observation = scan_engine.scan(
-                time_step=time_step,
-                band=band,
-            )
-
-            scheduler.update(observation)
-
+        # Calculate event metrics from the exact same history.
         event_result = evaluate_interception(
             environment,
-            scan_engine.get_history(),
+            history,
         )
 
         results[name] = {

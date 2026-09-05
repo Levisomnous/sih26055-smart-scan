@@ -80,8 +80,14 @@ class DemoRunner:
 
         self.scheduler.update(observation)
 
-        if observation.detected:
+        # Keep live-demo reward consistent with evaluation.metrics:
+        # true detection = +1
+        # false alarm    = -1
+        # miss/correct negative = 0
+        if observation.truth_active and observation.detected:
             reward = 1.0
+        elif not observation.truth_active and observation.detected:
+            reward = -1.0
         else:
             reward = 0.0
 

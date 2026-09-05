@@ -66,6 +66,7 @@ mode = st.sidebar.radio(
     [
         "Benchmark",
         "Live Adaptive Demo",
+        "Final Demo",
     ],
 )
 
@@ -431,7 +432,7 @@ if mode == "Benchmark":
 # LIVE DEMO MODE
 # =========================================================
 
-else:
+elif mode == "Live Adaptive Demo":
 
     st.subheader("Live Adaptive Scheduler")
 
@@ -702,7 +703,394 @@ else:
             f"time step {runner.time_step}."
         )
 
+# =========================================================
+# FINAL DEMO MODE
+# =========================================================
 
+elif mode == "Final Demo":
+
+    st.title(
+        "SIH26055 — Final Prototype Demonstration"
+    )
+
+    st.caption(
+        "Adaptive scan scheduling in a controlled "
+        "synthetic environment"
+    )
+
+    st.info(
+        """
+        This demonstration shows a simulated receiver with
+        limited observation capability. The adaptive scheduler
+        uses previous observations to determine which frequency
+        band to inspect next.
+        """
+    )
+
+    # -----------------------------------------------------
+    # FIXED DEMO CONFIGURATION
+    # -----------------------------------------------------
+
+    DEMO_SCENARIO = "changing"
+    DEMO_BANDS = 20
+    DEMO_STEPS = 100
+    DEMO_SEED = 42
+
+    demo_config = ScenarioConfig(
+        name=DEMO_SCENARIO,
+        num_bands=DEMO_BANDS,
+        num_steps=DEMO_STEPS,
+        seed=DEMO_SEED,
+    )
+
+    demo_environment = SyntheticRFEnvironment(
+        demo_config
+    )
+
+    # -----------------------------------------------------
+    # ENVIRONMENT
+    # -----------------------------------------------------
+
+    st.subheader(
+        "1. Simulated Frequency × Time Environment"
+    )
+
+    st.write(
+        """
+        The simulator generates activity across frequency
+        bands and time. The reference activity is retained
+        internally for evaluation.
+        """
+    )
+
+    fig, ax = plt.subplots(figsize=(14, 4.5))
+
+    ax.imshow(
+        demo_environment.activity.T,
+        aspect="auto",
+        interpolation="nearest",
+    )
+
+    ax.set_xlabel("Time Step")
+    ax.set_ylabel("Frequency Band")
+
+    ax.set_title(
+        "Reference Activity — Changing Scenario"
+    )
+
+    ax.set_yticks(
+        range(DEMO_BANDS)
+    )
+
+    ax.set_yticklabels(
+        [
+            f"B{i + 1}"
+            for i in range(DEMO_BANDS)
+        ]
+    )
+
+    st.pyplot(fig)
+
+    plt.close(fig)
+
+    # -----------------------------------------------------
+    # SESSION STATE
+    # -----------------------------------------------------
+
+    if (
+        "final_demo_runner"
+        not in st.session_state
+    ):
+
+        st.session_state.final_demo_runner = (
+            DemoRunner(
+                environment=demo_environment,
+                seed=DEMO_SEED,
+            )
+        )
+
+        st.session_state.final_demo_state = None
+
+    runner = st.session_state.final_demo_runner
+
+    # -----------------------------------------------------
+    # RESET
+    # -----------------------------------------------------
+
+    if st.button(
+        "Reset Final Demo",
+        width="stretch",
+    ):
+
+        st.session_state.final_demo_runner = (
+            DemoRunner(
+                environment=demo_environment,
+                seed=DEMO_SEED,
+            )
+        )
+
+        st.session_state.final_demo_state = None
+
+        st.rerun()
+
+    # -----------------------------------------------------
+    # CONTROL BUTTONS
+    # -----------------------------------------------------
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        next_scan = st.button(
+            "▶ Next Scan",
+            type="primary",
+            width="stretch",
+        )
+
+    with col2:
+
+        run_demo = st.button(
+            "▶ Run Demo",
+            width="stretch",
+        )
+
+    if next_scan:
+
+        st.session_state.final_demo_state = (
+            runner.step()
+        )
+
+    if run_demo:
+
+        while not runner.state.finished:
+
+            st.session_state.final_demo_state = (
+                runner.step()
+            )
+
+    state = st.session_state.final_demo_state
+
+    # -----------------------------------------------------
+    # CURRENT DECISION
+    # -----------------------------------------------------
+
+    st.subheader(
+        "2. Smart Scheduler Decision"
+    )
+
+    if state is None:
+
+        st.warning(
+            "Press **Next Scan** to begin."
+        )
+
+    else:
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+
+            st.metric(
+                "Time Step",
+                state.time_step,
+            )
+
+        with col2:
+
+            st.metric(
+                "Selected Band",
+                f"B{state.selected_band + 1}",
+            )
+
+        with col3:
+
+            st.metric(
+                "Receiver Result",
+                (
+                    "DETECTED"
+                    if state.detected
+                    else "NOT DETECTED"
+                ),
+            )
+
+        with col4:
+
+            st.metric(
+                "Reward",
+                f"{state.reward:+.1f}",
+            )
+
+        scores = runner.get_scores()
+
+        selected_score = scores[
+            state.selected_band
+        ]
+
+        st.success(
+            f"Scheduler selected "
+            f"**B{state.selected_band + 1}** "
+            f"with priority score "
+            f"**{selected_score:.2f}**."
+        )
+
+    # -----------------------------------------------------
+    # PRIORITIES
+    # -----------------------------------------------------
+
+    st.subheader(
+        "3. Learned Band Priorities"
+    )
+
+    scores = runner.get_scores()
+
+    priority_df = pd.DataFrame(
+        {
+            "Band": [
+                f"B{i + 1}"
+                for i in range(DEMO_BANDS)
+            ],
+            "Priority": scores,
+        }
+    )
+
+    priority_df = priority_df.sort_values(
+        "Priority",
+        ascending=False,
+    )
+
+    st.bar_chart(
+        priority_df.set_index("Band")
+    )
+
+    # -----------------------------------------------------
+    # SCAN PATH
+    # -----------------------------------------------------
+
+    history = runner.get_history()
+
+    if history:
+
+        st.subheader(
+            "4. Adaptive Scan Path"
+        )
+
+        path_df = pd.DataFrame(
+            {
+                "Time": [
+                    record.time_step
+                    for record in history
+                ],
+                "Selected Band": [
+                    record.band + 1
+                    for record in history
+                ],
+            }
+        )
+
+        st.line_chart(
+            path_df.set_index("Time")
+        )
+
+    # -----------------------------------------------------
+    # FINAL COMPARISON
+    # -----------------------------------------------------
+
+    st.subheader(
+        "5. Baseline vs Smart Adaptive"
+    )
+
+    final_results = run_benchmark(
+        scenario_name=DEMO_SCENARIO,
+        num_bands=DEMO_BANDS,
+        num_steps=DEMO_STEPS,
+        seed=DEMO_SEED,
+    )
+
+    sequential = final_results["Sequential"]
+    smart = final_results["Smart Adaptive"]
+
+    seq_basic = sequential["basic"]
+    seq_events = sequential["events"]
+
+    smart_basic = smart["basic"]
+    smart_events = smart["events"]
+
+    final_comparison = pd.DataFrame(
+        [
+            {
+                "Metric": "Detection Probability",
+                "Sequential":
+                    f"{seq_basic.detection_probability * 100:.2f}%",
+                "Smart Adaptive":
+                    f"{smart_basic.detection_probability * 100:.2f}%",
+            },
+            {
+                "Metric": "False Alarm Probability",
+                "Sequential":
+                    f"{seq_basic.false_alarm_probability * 100:.2f}%",
+                "Smart Adaptive":
+                    f"{smart_basic.false_alarm_probability * 100:.2f}%",
+            },
+            {
+                "Metric": "Interception Ratio",
+                "Sequential":
+                    f"{seq_events.interception_ratio * 100:.2f}%",
+                "Smart Adaptive":
+                    f"{smart_events.interception_ratio * 100:.2f}%",
+            },
+            {
+                "Metric": "Average Intercept Delay",
+                "Sequential":
+                    f"{seq_events.average_intercept_delay:.2f}",
+                "Smart Adaptive":
+                    f"{smart_events.average_intercept_delay:.2f}",
+            },
+            {
+                "Metric": "Average Reward",
+                "Sequential":
+                    f"{seq_basic.average_reward:.3f}",
+                "Smart Adaptive":
+                    f"{smart_basic.average_reward:.3f}",
+            },
+        ]
+    )
+
+    st.dataframe(
+        final_comparison,
+        width="stretch",
+        hide_index=True,
+    )
+
+    st.caption(
+        "Both strategies are evaluated using the same "
+        "synthetic scenario, number of steps, and seed."
+    )
+
+    # -----------------------------------------------------
+    # CONCLUSION
+    # -----------------------------------------------------
+
+    st.subheader(
+        "6. Prototype Summary"
+    )
+
+    st.markdown(
+        """
+        **Closed-loop scheduling process:**
+
+        **Simulate → Observe → Decide → Receive Feedback → Update → Repeat**
+
+        The prototype demonstrates how an adaptive scheduler
+        can dynamically prioritize frequency-band observations
+        using previously observed information.
+        """
+    )
+
+    if state is not None and state.finished:
+
+        st.success(
+            "Final demonstration completed."
+        )
 # =========================================================
 # EXPLANATION
 # =========================================================

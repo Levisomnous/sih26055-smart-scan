@@ -39,9 +39,7 @@ def find_activity_events(
 
             # 0 -> 1 transition = beginning of an activity event.
             if current_state == 1 and previous_state == 0:
-                events.append(
-                    (time_step, band)
-                )
+                events.append((time_step, band))
 
             previous_state = current_state
 
@@ -53,10 +51,16 @@ def evaluate_interception(
     history: list[ScanRecord],
 ) -> EventEvaluation:
     """
-    Evaluate whether activity events were observed.
+    Evaluate whether activity events were actually detected.
 
-    An event is considered intercepted if the scheduler scans
-    that band at or after the event start while the event remains active.
+    An event is considered intercepted when:
+    - the scheduler scans the event's band,
+    - the scan occurs after the event starts,
+    - the event is still active,
+    - and the simulated receiver reports detected=True.
+
+    Intercept delay is measured from event start to the first
+    successful detection.
     """
 
     events = find_activity_events(environment)
@@ -74,21 +78,26 @@ def evaluate_interception(
             if record.time_step < event_start:
                 continue
 
+            # The event must still be active at scan time.
             truth = environment.get_truth(
                 record.time_step,
                 band,
             )
 
-            if truth == 1:
-                detection_time = record.time_step
-                break
+            if truth != 1:
+                continue
+
+            # IMPORTANT:
+            # The receiver must actually detect the activity.
+            if not record.detected:
+                continue
+
+            detection_time = record.time_step
+            break
 
         if detection_time is not None:
             intercepted += 1
-
-            delays.append(
-                detection_time - event_start
-            )
+            delays.append(detection_time - event_start)
 
     total_events = len(events)
     missed_events = total_events - intercepted

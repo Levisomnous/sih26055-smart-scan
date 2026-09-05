@@ -67,12 +67,16 @@ class SyntheticRFEnvironment:
         if scenario == "changing":
             return self._changing_scenario(activity)
 
+        if scenario == "changing_persistent":
+            return self._changing_persistent_scenario(activity)
+
         if scenario == "mixed":
             return self._mixed_scenario(activity)
 
         raise ValueError(
             f"Unknown scenario: {scenario}. "
-            f"Choose persistent, periodic, bursty, changing, or mixed."
+            f"Choose persistent, periodic, bursty, changing, "
+            f"changing_persistent, or mixed."
         )
 
     def _persistent_scenario(
@@ -198,6 +202,115 @@ class SyntheticRFEnvironment:
             activity[change_point:, band] = (
                 self.rng.random(remaining_steps)
                 < second_probability
+            )
+
+        return activity
+
+    def _changing_persistent_scenario(
+        self,
+        activity: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Changing environment with temporally persistent activity.
+
+        The simulation is divided into two independent phases.
+
+        First half:
+            B3 and B6 have higher event frequency.
+
+        Second half:
+            B13 and B17 have higher event frequency.
+
+        Each event lasts 3-6 time steps and is followed by
+        an inactive gap of 2-6 time steps.
+
+        Events never cross the phase boundary.
+        """
+
+        change_point = self.num_steps // 2
+
+        first_priority_bands = {2, 5}
+        second_priority_bands = {12, 16}
+
+        def generate_phase(
+            band: int,
+            start: int,
+            end: int,
+            start_probability: float,
+        ) -> None:
+            time_step = start
+
+            while time_step < end:
+                remaining = end - time_step
+
+                # Need at least 3 steps for a valid event.
+                if remaining < 3:
+                    break
+
+                if self.rng.random() < start_probability:
+                    duration = int(
+                        self.rng.integers(
+                            3,
+                            min(7, remaining + 1),
+                        )
+                    )
+
+                    event_end = min(
+                        end,
+                        time_step + duration,
+                    )
+
+                    activity[
+                        time_step:event_end,
+                        band,
+                    ] = 1
+
+                    # Mandatory inactive gap after every event.
+                    gap = int(
+                        self.rng.integers(2, 7)
+                    )
+
+                    time_step = min(
+                        end,
+                        event_end + gap,
+                    )
+
+                else:
+                    # Advance through inactive time.
+                    gap = int(
+                        self.rng.integers(1, 4)
+                    )
+
+                    time_step = min(
+                        end,
+                        time_step + gap,
+                    )
+
+        for band in range(self.num_bands):
+            if band in first_priority_bands:
+                first_probability = 0.22
+                second_probability = 0.03
+
+            elif band in second_priority_bands:
+                first_probability = 0.03
+                second_probability = 0.22
+
+            else:
+                first_probability = 0.05
+                second_probability = 0.05
+
+            generate_phase(
+                band,
+                0,
+                change_point,
+                first_probability,
+            )
+
+            generate_phase(
+                band,
+                change_point,
+                self.num_steps,
+                second_probability,
             )
 
         return activity
