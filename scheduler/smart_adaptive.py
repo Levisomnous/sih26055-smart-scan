@@ -21,6 +21,10 @@ class SmartAdaptiveScheduler(BaseScheduler):
     It also maintains epsilon-greedy exploration.
     """
 
+    ACTIVITY_WEIGHT = 0.60
+    UNCERTAINTY_WEIGHT = 0.15
+    AGE_WEIGHT = 0.25
+
     def __init__(
         self,
         num_bands: int,
@@ -180,16 +184,49 @@ class SmartAdaptiveScheduler(BaseScheduler):
         uncertainty = self.get_uncertainty_scores()
         age = self.get_age_scores()
 
-        scores = []
-
-        for band in range(self.num_bands):
-
-            score = (
-                0.60 * activity[band]
-                + 0.15 * uncertainty[band]
-                + 0.25 * age[band]
+        return [
+            self._score_from_components(
+                activity[band],
+                uncertainty[band],
+                age[band],
             )
+            for band in range(self.num_bands)
+        ]
 
-            scores.append(score)
+    def _score_from_components(
+        self,
+        activity: float,
+        uncertainty: float,
+        age: float,
+    ) -> float:
+        return (
+            self.ACTIVITY_WEIGHT * activity
+            + self.UNCERTAINTY_WEIGHT * uncertainty
+            + self.AGE_WEIGHT * age
+        )
 
-        return scores
+    def get_band_explanation(self, band: int) -> dict[str, float]:
+        """Return the observable components behind one band's priority."""
+
+        if not 0 <= band < self.num_bands:
+            raise IndexError("band out of range")
+
+        activity = self.get_activity_scores()[band]
+        uncertainty = self.get_uncertainty_scores()[band]
+        age = self.get_age_scores()[band]
+        score = self._score_from_components(
+            activity,
+            uncertainty,
+            age,
+        )
+
+        return {
+            "activity": activity,
+            "uncertainty": uncertainty,
+            "age": age,
+            "activity_contribution": self.ACTIVITY_WEIGHT * activity,
+            "uncertainty_contribution": self.UNCERTAINTY_WEIGHT * uncertainty,
+            "age_contribution": self.AGE_WEIGHT * age,
+            "final_priority": score,
+            "score": score,
+        }

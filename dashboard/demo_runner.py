@@ -112,6 +112,12 @@ class DemoRunner:
         """
         return self.scheduler.get_band_scores()
 
+    def get_band_explanation(self, band: int) -> dict[str, float]:
+        """
+        Return the scheduler's observable explanation for one band.
+        """
+        return self.scheduler.get_band_explanation(band)
+
     def get_history(self):
         """
         Return the scan history.
